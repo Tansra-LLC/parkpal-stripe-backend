@@ -1,13 +1,24 @@
-const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database(process.env.DB_PATH || './data.db');
+import sqlite3 from "sqlite3";
+import { open } from "sqlite";
 
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE,
-    password_hash TEXT,
-    stripe_customer_id TEXT
-  );`);
-  console.log("Migration complete.");
-  db.close();
-});
+async function main() {
+  const db = await open({
+    filename: "./data.db",
+    driver: sqlite3.Database
+  });
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE,
+      password_hash TEXT,
+      stripe_customer_id TEXT,
+      subscription_active INTEGER DEFAULT 0
+    );
+  `);
+
+  console.log("Database migrated");
+  await db.close();
+}
+
+main();
