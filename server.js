@@ -3,8 +3,9 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import Stripe from "stripe";
 import jwt from "jsonwebtoken";
-import sqlite3 from "sqlite3";
-import bcrypt from "bcryptjs";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -13,86 +14,67 @@ app.use(bodyParser.json());
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const JWT_SECRET = process.env.JWT_SECRET || "default_secret";
 
-// --- SQLite Setup ---
-const db = new sqlite3.Database("./users.db");
-db.serialize(() => {
-  db.run(
-    "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, password TEXT, payedFor INTEGER DEFAULT 0)"
-  );
-});
+// ---- In-memory users ----
+let users = []; 
+// { email, password, payedFor: false/true }
 
-// --- AUTH ---
+// ---- AUTH ----
 app.post("/signup", (req, res) => {
   const { email, password } = req.body;
-  const hashed = bcrypt.hashSync(password, 10);
 
-  db.run(
-    "INSERT INTO users (email, password, payedFor) VALUES (?, ?, 0)",
-    [email, hashed],
-    function (err) {
-      if (err) {
-        return res.status(400).json({ error: "User already exists" });
-      }
-      const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-      res.json({ token, email, payedFor: false });
-    }
-  );
+  if (users.find(u => u.email === email)) {
+    return res.status(400).json({ error: "User already exists" });
+  }
+
+  const newUser = { email, password, payedFor: false };
+  users.push(newUser);
+
+  const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
+  res.json({ token, email, payedFor: false });
 });
 
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
-  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
-    if (err || !row) {
-      return res.status(400).json({ error: "Invalid credentials" });
-    }
+  const user = users.find(u => u.email === email && u.password === password);
+  if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-    if (!bcrypt.compareSync(password, row.password)) {
-      return res.status(400).json({ error: "Invalid credentials" });
-    }
-
-    const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-    res.json({ token, email, payedFor: !!row.payedFor });
-  });
+  const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
+  res.json({ token, email, payedFor: user.payedFor });
 });
 
-// --- STRIPE ---
-app.post("/create-subscription", async (req, res) => {
+// ---- STRIPE ----
+app.post("/create-payment-intent", async (req, res) => {
   try {
-    const { email, paymentMethodId } = req.body;
+    const { email } = req.body;
 
-    const customer = await stripe.customers.create({
-      email,
-      payment_method: paymentMethodId,
-      invoice_settings: { default_payment_method: paymentMethodId },
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: 999, // $9.99
+      currency: "usd",
+      automatic_payment_methods: { enabled: true },
+      receipt_email: email,
     });
 
-    const subscription = await stripe.subscriptions.create({
-      customer: customer.id,
-      items: [{ price: process.env.STRIPE_PRICE_ID }],
-      expand: ["latest_invoice.payment_intent"],
+    res.send({
+      paymentIntent: paymentIntent.client_secret,
     });
-
-    // update DB: mark user as payed
-    db.run("UPDATE users SET payedFor = 1 WHERE email = ?", [email]);
-
-    res.json(subscription);
   } catch (error) {
+    console.error("Stripe error:", error);
     res.status(400).json({ error: error.message });
   }
 });
 
-// --- Subscription status ---
-app.get("/subscription-status/:email", (req, res) => {
-  const { email } = req.params;
+// After successful payment, mark user as payed
+app.post("/mark-payed", (req, res) => {
+  const { email } = req.body;
 
-  db.get("SELECT payedFor FROM users WHERE email = ?", [email], (err, row) => {
-    if (err || !row) return res.json({ active: false });
-    res.json({ active: !!row.payedFor });
-  });
+  const user = users.find(u => u.email === email);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  user.payedFor = true;
+  res.json({ success: true, email, payedFor: true });
 });
 
-// --- SERVER ---
+// ---- SERVER ----
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ Backend running on ${PORT}`));
-
+app.listen(PORT, () => console.log(`✅ Backend running on port ${PORT}`));
