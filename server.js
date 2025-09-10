@@ -3,9 +3,6 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import Stripe from "stripe";
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -14,67 +11,65 @@ app.use(bodyParser.json());
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const JWT_SECRET = process.env.JWT_SECRET || "default_secret";
 
-// ---- In-memory users ----
-let users = []; 
-// { email, password, payedFor: false/true }
+// Simple in-memory user store
+let users = []; // { email, password, subscriptionActive, token }
 
-// ---- AUTH ----
+// --- AUTH ---
 app.post("/signup", (req, res) => {
   const { email, password } = req.body;
 
+  // check if user exists
   if (users.find(u => u.email === email)) {
     return res.status(400).json({ error: "User already exists" });
   }
 
-  const newUser = { email, password, payedFor: false };
+  const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
+  const newUser = { email, password, subscriptionActive: false, token };
   users.push(newUser);
 
-  const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-  res.json({ token, email, payedFor: false });
+  res.json(newUser);
 });
 
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
-
   const user = users.find(u => u.email === email && u.password === password);
-  if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-  const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-  res.json({ token, email, payedFor: user.payedFor });
+  if (!user) {
+    return res.status(401).json({ error: "Invalid credentials" });
+  }
+
+  res.json(user);
 });
 
-// ---- STRIPE ----
+// --- STRIPE: PaymentIntent for in-app PaymentSheet ---
 app.post("/create-payment-intent", async (req, res) => {
   try {
     const { email } = req.body;
+    const user = users.find(u => u.email === email);
+    if (!user) return res.status(404).json({ error: "User not found" });
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: 999, // $9.99
+      amount: 999, // e.g. $9.99
       currency: "usd",
       automatic_payment_methods: { enabled: true },
-      receipt_email: email,
     });
 
-    res.send({
-      paymentIntent: paymentIntent.client_secret,
-    });
+    res.json({ clientSecret: paymentIntent.client_secret });
   } catch (error) {
-    console.error("Stripe error:", error);
     res.status(400).json({ error: error.message });
   }
 });
 
-// After successful payment, mark user as payed
-app.post("/mark-payed", (req, res) => {
+// --- Mark subscription as active after success ---
+app.post("/mark-subscribed", (req, res) => {
   const { email } = req.body;
-
   const user = users.find(u => u.email === email);
   if (!user) return res.status(404).json({ error: "User not found" });
 
-  user.payedFor = true;
-  res.json({ success: true, email, payedFor: true });
+  user.subscriptionActive = true;
+  res.json(user);
 });
 
-// ---- SERVER ----
+// --- SERVER ---
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`✅ Backend running on port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Backend running on ${PORT}`));
