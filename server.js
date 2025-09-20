@@ -14,9 +14,9 @@ app.post("/signup", async (req, res) => {
   try {
     const hashed = await bcrypt.hash(password, 10);
     await pool.query(
-      "INSERT INTO users (email, password) VALUES ($1, $2)",
-      [email, hashed]
-    );
+  "INSERT INTO users (email, password, payed) VALUES ($1, $2, $3)",
+  [email, hashed, false]
+);
     res.json({ success: true });
   } catch (err) {
     console.error("Signup error:", err);
