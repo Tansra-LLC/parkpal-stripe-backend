@@ -36,7 +36,11 @@ app.post("/login", async (req, res) => {
     res.json({ success: match });
   } catch (err) {
     console.error("Login error:", err);
-    res.json({ success: false });
+    if (!match) return res.json({ success: false, message: "Invalid password" });
+if (!user.payed) return res.json({ success: false, message: "Payment required" });
+
+res.json({ success: true });
+
   }
 });
 
