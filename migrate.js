@@ -20,7 +20,7 @@ const pool = new Pool({
     await pool.query(`
       INSERT INTO users (email, password, payed)
       VALUES 
-        ('test@example.com', 'password123', TRUE),
+        ('tester@apple.com', 'P@$$word123', TRUE),
         ('unpaid@example.com', 'password123', FALSE)
       ON CONFLICT (email) DO NOTHING;
     `);
