@@ -186,4 +186,31 @@ async function migrate() {
     console.log(`Server listening on port ${PORT}`);
   });
 })();
+// Cancel subscription
+app.post("/cancelsubscription", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email required" });
+
+    try {
+        await pool.query("UPDATE users SET subscribed = false WHERE email = $1", [email]);
+        res.json({ message: "Subscription cancelled" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to cancel subscription" });
+    }
+});
+
+// Update user info (email)
+app.post("/updateuser", async (req, res) => {
+    const { oldEmail, newEmail } = req.body;
+    if (!oldEmail || !newEmail) return res.status(400).json({ error: "Both old and new email required" });
+
+    try {
+        await pool.query("UPDATE users SET email = $1 WHERE email = $2", [newEmail, oldEmail]);
+        res.json({ message: "Email updated successfully" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to update email" });
+    }
+});
 
